@@ -44,8 +44,8 @@ def sitePull(i):
   if collection == 'SR':
     mission = ee.String(lsSample.get('SATELLITE')).split('_').get(1)
     bitAffected = {
-    'Cloud': [5, 1],
-    'CloudShadow': [3, 1],
+    'Cloud': [3, 1],
+    'CloudShadow': [4, 1],
     'CirrusConfidence': [8,2] #only present for L8, but bits aren't used in 5-7 
                               #so will just come up empty
     
