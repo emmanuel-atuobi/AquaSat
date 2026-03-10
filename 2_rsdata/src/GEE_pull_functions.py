@@ -27,110 +27,73 @@ def UnpackAll(bitBand, bitInfo):
 # extracts reflectance data for each in situ sampling date after creating a water mask.
 def sitePull(i):
 
-  #Pull the overpass date associated with the sample (+/- 1 day)
   date = ee.Date(i.get('date'))
-    
-  #Create a buffer around the sample site. Size is determined above.
   sdist = i.geometry().buffer(dist)
-    
-  #Filter the landsat scenes associated with the path/row to the sample date
-  #and clip it to the site buffer
-  lsSample = ee.Image(lsover.filterDate(date,date.advance(1,'day')).first()).clip(sdist)
 
-  #Create a mask that removes pixels identifed as cloud or cloud 
-  #shadow with the pixel qa band
-  
-  #For each collection identify bits associates with each obstruction.
-  if collection == 'SR':
-    mission = ee.String(lsSample.get('SATELLITE')).split('_').get(1)
-    bitAffected = {
-    'Cloud': [3, 1],
-    'CloudShadow': [4, 1],
-    'CirrusConfidence': [8,2] #only present for L8, but bits aren't used in 5-7 
-                              #so will just come up empty
-    
-    #'SnowIceConfidence': [9, 2]  Realized that sometimes super turbid waterbodies are
-    #flagged as snow/ice, subsequently you can't filter by this unless you know your area
-    #is unaffected by commission errors.
-    }
-  
-  else:
+  # Filter to +/- 1 day window
+  filtered = lsover.filterDate(date.advance(-1,'day'), date.advance(1,'day'))
+
+  # Only proceed if there is at least one image
+  def processImage(dummy):
+    lsSample = ee.Image(filtered.first()).clip(sdist)
+
     mission = ee.String(lsSample.get('SPACECRAFT_ID')).split('_').get(1)
-    bitAffected = {
-    'Cloud': [4, 1],
-    'CloudShadow': [7, 2],
-    'CirrusConfidence': [11,2]
-    #'SnowIceConfidence': [9, 2]
-    }
-  
 
-  ## Create layer to mask out roads that might not show up in Pekel and potentially 
-  #corrupt pixel values  
-  road = ee.FeatureCollection("TIGER/2016/Roads").filterBounds(sdist)\
-  .geometry().buffer(30) 
-  
-  #Select qa band
-  qa = lsSample.select('qa')
-    
-  #Create road, cloud, and shadow mask. 
-  
-  #Upack quality band to identify clouds, cloud shadows, and cirrus shadows.
-  #For SR collections, clouds and cloud shadows will be either 0 or 1.  For
-  #TOA collection, cloud shadow will be 1,2, or 3, associated with low, medium, or high
-  #confidence respectively.  The following code only removes high confidence cloud shadows and cirrus
-  #clouds, but this can be changed to accomadate specific research goals/areas.
-  
-  qaUnpack = UnpackAll(qa, bitAffected)
-  
-  if collection == 'SR':
+    bitAffected = {
+      'Cloud': [3, 1],
+      'CloudShadow': [4, 1],
+      'CirrusConfidence': [8, 2]
+    }
+
+    road = ee.FeatureCollection("TIGER/2016/Roads").filterBounds(sdist)\
+    .geometry().buffer(30)
+
+    qa = lsSample.select('qa')
+    qaUnpack = UnpackAll(qa, bitAffected)
+
     mask = qaUnpack.select('Cloud').eq(1)\
     .Or(qaUnpack.select('CloudShadow').eq(1))\
     .Or(qaUnpack.select('CirrusConfidence').eq(3))\
     .paint(road,1).Not()
-  else:
-    mask = qaUnpack.select('Cloud').eq(1)\
-    .Or(qaUnpack.select('CloudShadow').eq(3))\
-    .Or(qaUnpack.select('CirrusConfidence').eq(3))\
-    .paint(road,1).Not()
- 
-  #Create water only mask
-  wateronly = water.clip(sdist)
-    
-  #Update mask on imagery and add Pekel occurrence band for data export.
-  lsSample = lsSample.addBands(pekel.select('occurrence'))\
-  .updateMask(wateronly).updateMask(mask)
-    
-  #Collect median reflectance and occurance values
-  lsout = lsSample.reduceRegion(ee.Reducer.median(), sdist, 30)
-  
-  #Collect reflectance and occurence st.dev.
-  lsdev = lsSample.reduceRegion(ee.Reducer.stdDev(), sdist, 30)
-    
-  #Create dictionaries of median values and attach them to original site feature.
-    
-  output = i.set({'sat': mission})\
-  .set({"blue": lsout.get('Blue')})\
-  .set({"green": lsout.get('Green')})\
-  .set({"red": lsout.get('Red')})\
-  .set({"nir": lsout.get('Nir')})\
-  .set({"swir1": lsout.get('Swir1')})\
-  .set({"swir2": lsout.get('Swir2')})\
-  .set({"qa": lsout.get('qa')})\
-  .set({"blue_sd": lsdev.get('Blue')})\
-  .set({"green_sd": lsdev.get('Green')})\
-  .set({"red_sd": lsdev.get('Red')})\
-  .set({"nir_sd": lsdev.get('Nir')})\
-  .set({"swir1_sd": lsdev.get('Swir1')})\
-  .set({"swir2_sd": lsdev.get('Swir2')})\
-  .set({"qa_sd": lsdev.get('qa')})\
-  .set({"pixelCount": lsSample.reduceRegion(ee.Reducer.count(), sdist, 30).get('Blue')})\
-  .set({'path': lsSample.get('WRS_PATH')})\
-  .set({'row': lsSample.get('WRS_ROW')})
-  
-  if collection == 'TOA':
-    output = output.set({"pan": lsout.get('Pan')})
-    
-  return output
+
+    wateronly = water.clip(sdist)
+
+    lsSample = lsSample.addBands(pekel.select('occurrence'))\
+    .updateMask(wateronly).updateMask(mask)
+
+    lsout = lsSample.reduceRegion(ee.Reducer.median(), sdist, 30)
+    lsdev = lsSample.reduceRegion(ee.Reducer.stdDev(), sdist, 30)
+
+    output = i.set({'sat': mission})\
+    .set({"blue": lsout.get('Blue')})\
+    .set({"green": lsout.get('Green')})\
+    .set({"red": lsout.get('Red')})\
+    .set({"nir": lsout.get('Nir')})\
+    .set({"swir1": lsout.get('Swir1')})\
+    .set({"swir2": lsout.get('Swir2')})\
+    .set({"qa": lsout.get('qa')})\
+    .set({"blue_sd": lsdev.get('Blue')})\
+    .set({"green_sd": lsdev.get('Green')})\
+    .set({"red_sd": lsdev.get('Red')})\
+    .set({"nir_sd": lsdev.get('Nir')})\
+    .set({"swir1_sd": lsdev.get('Swir1')})\
+    .set({"swir2_sd": lsdev.get('Swir2')})\
+    .set({"qa_sd": lsdev.get('qa')})\
+    .set({"pixelCount": lsSample.reduceRegion(ee.Reducer.count(), sdist, 30).get('Blue')})\
+    .set({'path': lsSample.get('WRS_PATH')})\
+    .set({'row': lsSample.get('WRS_ROW')})
+
+    return output
+
+  # If no image exists for this date, return the feature unchanged with null values
+  def returnNull(dummy):
+    return i.set({'sat': None, 'blue': None, 'green': None, 'red': None,
+                  'nir': None, 'swir1': None, 'swir2': None, 'qa': None,
+                  'blue_sd': None, 'green_sd': None, 'red_sd': None,
+                  'nir_sd': None, 'swir1_sd': None, 'swir2_sd': None,
+                  'qa_sd': None, 'pixelCount': None, 'path': None, 'row': None})
+
+  return ee.Feature(ee.Algorithms.If(filtered.size().gt(0), processImage(1), returnNull(1)))
 
 ##Function for limiting the max number of tasks sent to
 #earth engine at one time to avoid time out errors
