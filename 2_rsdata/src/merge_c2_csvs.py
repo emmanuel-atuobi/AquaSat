@@ -34,8 +34,10 @@ print(f'Total rows after dropping null reflectance: {len(merged)}')
 
 # Join with original water quality parameters
 wq = pd.read_csv('C:/Users/atuob/Downloads/sr_wq_rs_join.csv')
-wq_cols = ['SiteID', 'date', 'chl_a', 'doc', 'secchi', 'tss', 
-           'lat', 'long', 'type', 'source']
+wq_cols = ['SiteID', 'date', 'chl_a', 'doc', 'secchi', 'tss',
+           'lat', 'long', 'type', 'source', 'endtime', 'date_only',
+           'p_sand', 'tis', 'TZID', 'date_utc', 'clouds', 'time',
+           'landsat_id', 'timediff', 'pwater', 'id']
 wq = wq[wq_cols].drop_duplicates(subset=['SiteID', 'date'])
 
 final = merged.merge(wq, on=['SiteID', 'date'], how='left')
